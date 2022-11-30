@@ -12,71 +12,101 @@ import sys
 sys.path.append('/Users/isabelgaron/anaconda3/envs/pgam/GAM_library')
 sys.path.append('/Users/isabelgaron/anaconda3/envs/firefly/proj_files')
 #from GAM_library.GAM_library import *#general_additive_model as heresthegam
-from GAM_library import *
-import gam_data_handlers as gdh
-import matplotlib.pylab as plt
+
 import pandas as pd
 import scipy.stats as sts
 from post_processing import postprocess_results
+import gam_data_handlers as gdh
+
+from GAM_library import *
+import matplotlib.pylab as plt
 import statsmodels.api as sm
 from bgam_data_handler import *
 
-def meth3_arbitrary():
+def mvmt_graph(trial, trial_num):
+
     plt.figure()
-    np.random.seed(5)
-    nobs = 1000#000#2*10**5 bigger does not improve atm
+    x_rew_circle = 60 * np.sin(np.pi*2*np.linspace(0, 1, 100))
+    y_rew_circle = 60 * np.cos(np.pi*2*np.linspace(0, 1, 100))
+
+    plt.title(trial_profile(trial_num))
+
+    sel_time = (timept[trial_num] >= t_flyON[trial_num]) & (
+        timept[trial_num] <= t_stop[trial_num])
+    plt.ylim(-40, 400)
+    plt.xlim(-300, 300)
+    plt.plot(x_monk[trial_num][sel_time], y_monk[trial_num][sel_time])
+    '''plt.scatter(np.sin(((ang_path[trial_num]/2)*np.pi)/180)*(rad_path[trial_num]/2),
+                np.cos(((ang_path[trial_num]/2)*np.pi)/180)*(rad_path[trial_num]/2))'''
+    plt.scatter(x_fly[trial_num], y_fly[trial_num], color='r')
+    plt.plot(x_rew_circle + x_fly[trial_num],
+             y_rew_circle + y_fly[trial_num], 'r')
+    plt.plot(path_x[trial_num], path_y[trial_num])
+    plt.figure()
+    plt.subplot(211)
+    plt.title('Radial dist ' + trial_outcome)
+
+    plt.plot(timept[trial_num], rad_target[trial_num])
+
+    plt.axvspan(t_flyON[trial_num], t_flyOFF[trial_num],
+                color="yellow", zorder=0)
+
+    plt.vlines([t_move[trial_num], t_stop[trial_num]], min(
+        rad_target[trial_num]), max(rad_target[trial_num]), 'r')
+    plt.xlabel('time [sec]')
+    plt.subplot(212)
+    plt.title('Angular dist')
+    plt.plot(timept[trial_num], ang_target[trial_num])
+
+    plt.axvspan(t_flyON[trial_num], t_flyOFF[trial_num],
+                color="yellow", zorder=0)
+
+    plt.vlines([t_move[trial_num], t_stop[trial_num]], min(
+        ang_target[trial_num]), max(ang_target[trial_num]), 'r')
+
+    plt.xlabel('time [sec]')
+    plt.tight_layout()
+
+def actual_data(data, var_list, trial_ids):
+
+    nobs = len(data[0])
     
-    size_knots = 10
+    size_knots = 5
     order = 4
-    ### values of outcome not input
+    y=data[0,:]
+    #y=(~y.astype(bool)).astype(int) # inverting bool successfully inverts lines
     
-    func1 = lambda x : np.log((10*x - 2)**2 +3)
-    func2 = lambda x: 3*x+3
-    func3 = lambda x: np.sin(3*x)
-    func4 = lambda x: np.log((2*x +3)**2 +5)
-    func5 = lambda x: np.round(x/2)
-    func6 = lambda x: -3*(x+2)
-    func7 = lambda x: x**2
-    func8 = lambda x: 5*x
-    func9 = lambda x: 2/x
-    
-    lis_funcs = [func1, func2, func3, func4, func5, func6]#, func7, func8, func9]
-    x_ranges = [[-2,2], [-2,2],[-1,1], [-2,2], [-2,2], [-2,2], [-2,2], [-2,2], [.1,2]]
-    xs = []
+    lis_funcs = []
+    x_ranges = []
     xxs = []
-    
     sm_handler = smooths_handler()
-    var_list = []
-    s = []
-    for i in range(0, len(lis_funcs)):
-        x1 = np.random.uniform(x_ranges[i][0], x_ranges[i][1], size=nobs)
-        xs.append(x1)
-        xx1 = np.linspace(x_ranges[i][0]+0.001, x_ranges[i][1]-0.001,100)
+    for i in range(1, len(data)):
+
+        xi_range = [np.min(data[i,:]),np.max(data[i,:])]
+        x_ranges.append(xi_range)
+        xx1 = np.linspace(xi_range[0], xi_range[1],100)
         xxs.append(xx1)
-        name = '1d_var'+str(i)
-        var_list.append(name)
-        sm_handler.add_smooth(name, [x1], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False], lam=None,penalty_type='der',der=2)
-        s.append(lis_funcs[i](x1))
-        # fix this
-    st = np.sum(s, axis=0)
+        knots1 = np.linspace(xi_range[0],xi_range[1],size_knots)
+
+         #CAREFUL with - first name is for data?
+        sm_handler.add_smooth(var_list[i-1], [data[i,:]], ord=order, knots=[knots1], knots_num=size_knots, perc_out_range=0.0,
+                           trial_idx=trial_ids,is_cyclic=[False], lam=None,penalty_type='der',der=2)
     
+    kernel_h_length = 20
+    x_ranges.append([0,kernel_h_length])
+    xx1 = np.linspace(0, kernel_h_length,20)
+    xxs.append(xx1)
+    sm_handler.add_smooth(var_list[9], [data[10,:]], is_temporal_kernel=True, ord=order, knots_num=5,
+                          trial_idx=trial_ids,kernel_length=kernel_h_length,kernel_direction=1)
+    '''kernel_h_length = 10
+    x_ranges.append([0,kernel_h_length])
+    xx1 = np.linspace(0, kernel_h_length,100)
+    xxs.append(xx1)
+    sm_handler.add_smooth(var_list[7], [data[8,:]], is_temporal_kernel=True, ord=order, knots_num=5,
+                          trial_idx=trial_ids,kernel_length=kernel_h_length,kernel_direction=1)
+    '''
     link = sm.genmod.families.links.logit()
     bernouFam = sm.genmod.families.family.Binomial(link=link)
-    p = bernouFam.link.inverse(st)#-np.mean(s)))#/(np.mean(s)/2))
-    # rescale to be correct ratio of zeros and one
-    plt.figure()
-    plt.plot(p)
-    plt.plot(st)
-    #plt.plot(np.log(curr3(x3)))
-
-    y = np.random.binomial(1, p)
-    plt.plot(y)
-    plt.show()
-
-    
-    link = sm.genmod.families.links.logit()
-    
     gam_model = general_additive_model(sm_handler,var_list,y,
                                            bernouFam,fisher_scoring=False)
 
@@ -96,688 +126,69 @@ def meth3_arbitrary():
     
     plt.close('all')
     plt.figure()
+    fig, axs = plt.subplots(1,10, sharey=True)
+    
+    funcs = []
+    
     for j in range(0, len(var_list)):
         f1y, f1y_min, f1y_max, la1 = full.smooth_compute([xxs[j]], var_list[j])
-        plt.subplot(1, len(var_list), j+1)
-        plt.title(var_list[j])
-        plt.plot(xxs[j], lis_funcs[j](xxs[j]),color='g',label='f1')
-        plt.plot(xxs[j], f1y, 'k-', label='model')
-        plt.fill_between(xxs[j], f1y_min,f1y_max)
-    
-    plt.show()
-
-def meth3():
-    plt.figure()
-    np.random.seed(5)
-    nobs = 1000#000#2*10**5 bigger does not improve atm
-    
-    size_knots = 10
-    order = 4
-    
-    x1_r = [-2,2]
-    x2_r = [-2,2]
-    x3_r = [-1,1]
-    x4_r = [-2,2]
-    x5_r = [-2,2]
-    x6_r = [-2,2]
-    x7_r = [-2,2]
-    
-    x1 = np.random.uniform(x1_r[0], x1_r[1], size=nobs) #-.5, .5
-    x2 = np.random.uniform(x2_r[0], x2_r[1], size=nobs)
-    x3 = np.random.uniform(x3_r[0], x3_r[1], size=nobs) #-2, 2
-    x4 = np.random.uniform(x4_r[0], x4_r[1], size=nobs)
-    x5 = np.random.uniform(x5_r[0], x5_r[1], size=nobs) #-1, 1
-    x6 = np.random.uniform(x6_r[0], x6_r[1], size=nobs)
-    x7 = np.random.uniform(x7_r[0], x7_r[1], size=nobs)
-    plt.figure()
-    plt.plot(np.sort(x7))
-    ### values of outcome not input
-    
-    func1 = lambda x : (10*x - 2)**2 +3
-    func2 = lambda x: 3*x+3
-    func3 = lambda x: np.sin(3*x)
-    func4 = lambda x: (2*x +3)**3 +5
-    func5 = lambda x: np.round(x/2)
-    func6 = lambda x: -3*(x+2)
-    func7 = lambda x: x**2
-    
-    curr1=func1
-    curr2=func2
-    curr3=func3
-    curr4=func4
-    curr5=func5
-    curr6=func6
-    curr7=func7
-    
-    ids = np.repeat(np.arange(200),nobs//200)
-    
-    link = sm.genmod.families.links.logit()
-    bernouFam = sm.genmod.families.family.Binomial(link=link)
-    s = (np.log(curr1(x1))+curr2(x2) +curr3(x3)+np.log(curr4(x4))+curr5(x5)+curr6(x6)+curr7(x7))
-    print(s)
-    p = bernouFam.link.inverse(s)#-np.mean(s)))#/(np.mean(s)/2))
-    # rescale to be correct ratio of zeros and one
-    plt.figure()
-    plt.plot(p)
-    plt.plot(s)
-    #plt.plot(np.log(curr3(x3)))
-
-    y = np.random.binomial(1, p)
-    plt.plot(y)
-    plt.show()
-    
-    xx1 = np.linspace(x1_r[0]+0.001, x1_r[1]-0.001,100)
-    xx2 = np.linspace(x2_r[0]+0.001, x2_r[1]-0.001,100)
-    xx3 = np.linspace(x3_r[0]+0.001, x3_r[1]-0.001,100)
-    xx4 = np.linspace(x4_r[0]+0.001, x4_r[1]-0.001,100)
-    xx5 = np.linspace(x5_r[0]+0.001, x5_r[1]-0.001,100)
-    xx6 = np.linspace(x6_r[0]+0.001, x6_r[1]-0.001,100)
-    xx7 = np.linspace(x7_r[0]+0.001, x7_r[1]-0.001,100)
-
-
-    sm_handler = smooths_handler()
-    sm_handler.add_smooth('1d_var', [x1], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False], trial_idx=ids, lam=None,penalty_type='der',der=2)
-
-    sm_handler.add_smooth('1d_var2', [x2], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=ids, lam=None,penalty_type='der',der=2)
-    
-    # TODO - knots only defined -1 to 1 in cyclic, better to construct by hand?
-    sm_handler.add_smooth('1d_var3', [x3], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[True],  trial_idx=ids, lam=None,penalty_type='der',der=2, knots_percentiles=(0,100))
-    
-    sm_handler.add_smooth('1d_var4', [x4], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=ids, lam=None,penalty_type='der',der=2)
-    
-    sm_handler.add_smooth('1d_var5', [x5], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=ids, lam=None,penalty_type='der',der=2)
-    
-    sm_handler.add_smooth('1d_var6', [x6], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=ids, lam=None,penalty_type='der',der=2)
-    
-    sm_handler.add_smooth('1d_var7', [x7], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=ids, lam=None,penalty_type='der',der=2)
-    
-    var_list = ['1d_var','1d_var2','1d_var3','1d_var4','1d_var5','1d_var6','1d_var7']
-
-
-    link = sm.genmod.families.links.logit()
-    
-    gam_model = general_additive_model(sm_handler,var_list,y,
-                                           bernouFam,fisher_scoring=False)
-
-    full,reduced = gam_model.fit_full_and_reduced(var_list,th_pval=0.001, max_iter=10 ** 4,#, tol=10 ** (-8),
-                                  conv_criteria='gcv', trial_num_vec=ids,
-                                  method='L-BFGS-B', #smooth_pen=[1] * 4, 
-                                  gcv_sel_tol=10 ** (-13), use_dgcv=True, fit_initial_beta=True,pseudoR2_per_variable=True)
-    
-
-    
-    
-    f1y, f1y_min, f1y_max, la1 = full.smooth_compute([xx1], '1d_var', trial_idx=ids)
-    f2y, f2y_min, f2y_max, la2 = full.smooth_compute([xx2], '1d_var2', trial_idx=ids)
-    f3y, f3y_min, f3y_max, la3 = full.smooth_compute([xx3], '1d_var3', trial_idx=ids)
-    f4y, f4y_min, f4y_max, la4 = full.smooth_compute([xx4], '1d_var4', trial_idx=ids)
-    f5y, f5y_min, f5y_max, la5 = full.smooth_compute([xx5], '1d_var5', trial_idx=ids)
-    f6y, f6y_min, f6y_max, la6 = full.smooth_compute([xx6], '1d_var6', trial_idx=ids)
-    f7y, f7y_min, f7y_max, la7 = full.smooth_compute([xx7], '1d_var7', trial_idx=ids)
-    
-    plt.close('all')
-    plt.figure()
-    plt.title("log")
-    plt.subplot(161)
-    plt.title("function 1")
-    plt.plot(plt.log(xx1), np.log(curr1(xx1)),color='g',label='f1')
-    plt.plot(plt.log(xx1), f1y, 'k-', label='model')
-    plt.fill_between(plt.log(xx1), f1y_min,f1y_max)
-    plt.subplot(162)
-    plt.title("function 2")
-    plt.plot(plt.log(xx2), curr2(xx2),color='g',label='f2')
-    plt.plot(plt.log(xx2), f2y, 'k-', label='model')
-    plt.fill_between(plt.log(xx2), f2y_min, f2y_max)
-    plt.subplot(163)
-    plt.title("function 3")
-    plt.plot(plt.log(xx3), curr3(xx3),color='g',label='f3')
-    plt.plot(plt.log(xx3), f3y, 'k-', label='model')
-    plt.fill_between(plt.log(xx3), f3y_min, f3y_max)
-    plt.subplot(164)
-    plt.title("function 4")
-    plt.plot(plt.log(xx4), np.log(curr4(xx4)),color='g',label='f4')
-    plt.plot(plt.log(xx4), f4y, 'k-', label='model')
-    plt.fill_between(plt.log(xx4), f4y_min, f4y_max)
-    plt.subplot(165)
-    plt.title("function 5")
-    plt.plot(plt.log(xx5), curr5(xx5),color='g',label='f5')
-    plt.plot(plt.log(xx5), f5y, 'k-', label='model')
-    plt.fill_between(plt.log(xx5), f5y_min, f5y_max)
-    plt.subplot(166)
-    plt.title("function 6")
-    plt.plot(plt.log(xx6), curr6(xx6),color='g',label='f6')
-    plt.plot(plt.log(xx6), f6y, 'k-', label='model')
-    plt.fill_between(plt.log(xx6), f6y_min, f6y_max)
-    plt.legend()
-    
-    
-    plt.figure()
-    
-    
-    plt.subplot(171)
-    plt.title("Function 1")
-    plt.plot(xx1, np.log(curr1(xx1)),color='g',label='f1')
-    plt.plot(xx1, f1y, 'k-', label='model')
-    plt.fill_between(xx1, f1y_min,f1y_max)
-    plt.subplot(172)
-    plt.title("Function 2")
-    plt.plot(xx2, curr2(xx2),color='g',label='f2')
-    plt.plot(xx2, f2y, 'k-', label='model')
-    plt.fill_between(xx2, f2y_min,f2y_max)
-    plt.subplot(173)
-    plt.title("Function 3")
-    plt.plot(xx3, curr3(xx3),color='g',label='f3')
-    plt.plot(xx3, f3y, 'k-', label='model')
-    plt.fill_between(xx3, f3y_min,f3y_max)
-    plt.subplot(174)
-    plt.title("Function 4")
-    plt.plot(xx4, np.log(curr4(xx4)),color='g',label='f4')
-    plt.plot(xx4, f4y, 'k-', label='model')
-    plt.fill_between(xx4, f4y_min,f4y_max)
-    plt.subplot(175)
-    plt.title("Function 5")
-    plt.plot(xx5, curr5(xx5),color='g',label='f5')
-    plt.plot(xx5, f5y, 'k-', label='model')
-    plt.fill_between(xx5, f5y_min,f5y_max)
-    plt.subplot(176)
-    plt.title("Function 6")
-    plt.plot(xx6, curr6(xx6),color='g',label='f6')
-    plt.plot(xx6, f6y, 'k-', label='model')
-    plt.fill_between(xx6, f6y_min,f6y_max)
-    plt.subplot(177)
-    plt.title("Function 7")
-    plt.plot(xx7, curr7(xx7),color='g',label='f7')
-    plt.plot(xx7, f7y, 'k-', label='model')
-    plt.fill_between(xx7, f7y_min,f7y_max)
-    plt.show()
-
-def meth3_subsample():
-    
-    plt.figure()
-    np.random.seed(5)
-    nobs = 3000#000#2*10**5 bigger does not improve atm
-    
-    size_knots = 10
-    order = 4
-    window = 20
-    
-    x = np.linspace(-2, 2, 1000)
-    low_t = window/2
-    high_t = len(x) - window/2
-    
-    func1 = lambda x: ((x+2)**3)/10
-    func2 = lambda x: 1*(x-0.5)**2
-    func3 = lambda x: np.sin(x)
-    func4 = lambda x: 1*(x)**3
-    
-    curr1=func2(x)
-    '''curr2=func2(x)
-    curr3=func3(x)
-    curr4=func4(x)'''
-    
-    ts = np.random.randint(low_t, high_t, size=nobs)
-    #tempx = np.array([x[i-int(window/2):int(i+window/2)] for i in ts]).flatten()
-    windows1 = np.array([curr1[i-int(window/2):int(i+window/2)] for i in ts])
-    c1 = np.average(windows1, axis=1)
-    '''windows2 = np.array([curr2[i-int(window/2):int(i+window/2)] for i in ts])
-    c2 = np.average(windows2, axis=1)
-    windows3 = np.array([curr3[i-int(window/2):int(i+window/2)] for i in ts])
-    c3 = np.average(windows3, axis=1)
-    windows4 = np.array([curr4[i-int(window/2):int(i+window/2)] for i in ts])
-    c4 = np.average(windows4, axis=1)'''
-    
-    ts = np.repeat(ts, window)
-    print(ts)
-    ids = np.repeat(np.arange(nobs),window)
-    
-    link = sm.genmod.families.links.logit()
-    bernouFam = sm.genmod.families.family.Binomial(link=link)
-    p = bernouFam.link.inverse(c1)#+c3+c1+c4)
-
-    y = np.random.binomial(1, p)
-    #print(y.tolist())
-    y = np.repeat(y, window)
-    #print(y.tolist())
-    
-    '''print(p.shape)
-    print(y.shape)
-    print(windows1.flatten().shape)
-    print(ids.shape)
-    plt.figure()
-    plt.plot(y)
-    plt.plot(windows1.flatten())
-    plt.plot(curr1)
-    plt.plot(x)
-    plt.show()'''
-    # Construct range
-    '''knots1 = np.linspace(-2,2,size_knots)
-    knots1 = np.hstack(([knots1[0]]*(order-1), knots1, [knots1[-1]]*(order-1)))
-    
-    # add ends
-    xx1 = np.linspace(-2+0.001, knots1[-1]-0.001,100)
-    bx1 = gdh.splineDesign(knots1, xx1, 
-                       ord=4, der=0,outer_ok=True)
-    
-    knots2 = np.linspace(-2,2,size_knots)
-    knots2 = np.hstack(([knots2[0]]*(order-1), knots2, [knots2[-1]]*(order-1)))
-    
-    xx2 = np.linspace(-2+0.001, knots2[-1]-0.001,100)
-    bx2 = gdh.splineDesign(knots2, xx2, 
-                       ord=4, der=0,outer_ok=True)
-    
-    knots3 = np.linspace(-2,2,size_knots)
-    knots3 = np.hstack(([knots3[0]]*(order-1), knots3, [knots3[-1]]*(order-1)))
-    
-    xx3 = np.linspace(-2+0.001, knots3[-1]-0.001,100)
-    bx3 = gdh.splineDesign(knots3, xx3, 
-                       ord=4, der=0,outer_ok=True)
-    
-    knots4 = np.linspace(-2,2,size_knots)
-    knots4 = np.hstack(([knots4[0]]*(order-1), knots4, [knots4[-1]]*(order-1)))
-    
-    xx4 = np.linspace(-2+0.001, knots4[-1]-0.001,100)
-    bx4 = gdh.splineDesign(knots4, xx4, 
-                       ord=4, der=0,outer_ok=True)'''
-
-    sm_handler = smooths_handler()
-    #windows1.flatten()
-    sm_handler.add_smooth('1d_var', [x[ts]], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False], trial_idx=ids, lam=None,penalty_type='der',der=2)
-
-    '''sm_handler.add_smooth('1d_var2', [windows2.flatten()], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=ids, lam=None,penalty_type='der',der=2)
-
-    sm_handler.add_smooth('1d_var3', [windows3.flatten()], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=ids, lam=None,penalty_type='der',der=2)
-    
-    sm_handler.add_smooth('1d_var4', [windows4.flatten()], ord=order, knots=None, knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=ids, lam=None,penalty_type='der',der=2)
-    '''
-    var_list = ['1d_var']#,'1d_var2','1d_var3','1d_var4']
-
-
-    link = sm.genmod.families.links.logit()
-    
-    gam_model = general_additive_model(sm_handler,var_list,y,
-                                           bernouFam,fisher_scoring=True)
-
-    full,reduced = gam_model.fit_full_and_reduced(var_list,th_pval=0.001, max_iter=10 ** 4,#, tol=10 ** (-8),
-                                  conv_criteria='gcv', trial_num_vec=ids,
-                                  method='L-BFGS-B', #smooth_pen=[1] * 4, 
-                                  gcv_sel_tol=10 ** (-13), use_dgcv=True, fit_initial_beta=True,pseudoR2_per_variable=False)
-    
-
-    
-    xx1 = np.linspace(-2, 2, 100)
-    print(len(xx1))
-    f1y, f1y_min, f1y_max, la1 = full.smooth_compute([xx1], '1d_var', trial_idx=ids)
-    '''f2y, f2y_min, f2y_max, la2 = full.smooth_compute([xx1], '1d_var2', trial_idx=ids)
-    f3y, f3y_min, f3y_max, la3 = full.smooth_compute([xx1], '1d_var3', trial_idx=ids)
-    f4y, f4y_min, f4y_max, la4 = full.smooth_compute([xx1], '1d_var4', trial_idx=ids)'''
-    
-    print(len(f1y))
-    '''plt.figure()
-    plt.plot(f1y)
-    plt.plot(tempx, windows1.flatten())
-    
-    plt.show()
-    plt.figure()
-    plt.plot(f2y)
-    plt.plot(f3y)
-    plt.plot(f4y)
-    plt.plot(curr2)
-    plt.plot(curr3)
-    plt.plot(curr4)
-    plt.show()'''
-    
-    
-    plt.close('all')
-    plt.figure()
-    plt.subplot(141)
-    plt.title("log")
-    plt.plot(plt.log(xx1), func2(xx1),color='g',label='f1')
-    plt.plot(plt.log(xx1), f1y, 'k-', label='model')
-    plt.legend()
-    '''plt.fill_between(plt.log(xx1), f1y_min,f1y_max)
-    plt.subplot(142)
-    plt.plot(plt.log(xx1), func2(xx1),color='g',label='f2')
-    plt.plot(plt.log(xx1), f2y, 'k-', label='model')
-    plt.fill_between(plt.log(xx1), f2y_min, f2y_max)
-    plt.subplot(143)
-    plt.plot(plt.log(xx1), func3(xx1),color='g',label='f3')
-    plt.plot(plt.log(xx1), f3y, 'k-', label='model')
-    plt.fill_between(plt.log(xx1), f3y_min, f3y_max)
-    plt.subplot(144)
-    plt.plot(plt.log(xx1), func4(xx1),color='g',label='f4')
-    plt.plot(plt.log(xx1), f4y, 'k-', label='model')
-    plt.fill_between(plt.log(xx1), f4y_min, f4y_max)
-    plt.legend()'''
-    
-    
-    plt.figure()
-    
-    
-    plt.subplot(141)
-    plt.title("normal")
-    plt.plot(xx1, func2(xx1),color='g',label='f1')
-    plt.plot(xx1, f1y, 'k-', label='model')
-    plt.legend()
-    plt.fill_between(xx1, f1y_min,f1y_max)
-    '''plt.subplot(142)
-    plt.plot(xx1, func2(xx1),color='g',label='f2')
-    plt.plot(xx1, f2y, 'k-', label='model')
-    plt.fill_between(xx1, f2y_min,f2y_max)
-    plt.subplot(143)
-    plt.plot(xx1, func3(xx1),color='g',label='f3')
-    plt.plot(xx1, f3y, 'k-', label='model')
-    plt.fill_between(xx1, f3y_min,f3y_max)
-    plt.subplot(144)
-    plt.plot(xx1, func4(xx1),color='g',label='f4')
-    plt.plot(xx1, f4y, 'k-', label='model')
-    plt.fill_between(xx1, f4y_min,f4y_max)
-    plt.legend()'''
-    plt.show()
-   
-def actual_data(data):
-    
-    
-    
-    np.random.seed(5)
-    nobs = len(data[0])#000#2*10**5 bigger does not improve atm
-    
-    size_knots = 10
-    order = 4
-    y=data[0,:]
-    #y=(~y.astype(bool)).astype(int) # inverting bool successfully inverts lines
-    x0_r = [np.min(data[0,:]),np.max(data[0,:])]
-    x1_r = [np.min(data[1,:]),np.max(data[1,:])]
-    x2_r = [np.min(data[2,:]),np.max(data[2,:])]
-    x3_r = [np.min(data[3,:]),np.max(data[3,:])]
-    x4_r = [np.min(data[4,:]),np.max(data[4,:])]
-    x5_r = [np.min(data[5,:]),np.max(data[5,:])]
-    x6_r = [np.min(data[6,:]),np.max(data[6,:])]
-    
-    print("===================")
-    print(x1_r)
-    print(x2_r)
-    print(x3_r)
-    print(x4_r)
-    print(x5_r)
-    print(x6_r)
-    
-    xx1 = np.linspace(x1_r[0], x1_r[1],100)
-    xx2 = np.linspace(x2_r[0], x2_r[1],100)
-    xx3 = np.linspace(x3_r[0], x3_r[1],100)
-    #print(xx3)
-    xx4 = np.linspace(x4_r[0], x4_r[1],100)
-    xx5 = np.linspace(x5_r[0], x5_r[1],100)
-    xx6 = np.linspace(x6_r[0], x6_r[1],100)
-
-    knots1 = np.linspace(x1_r[0],x1_r[1],size_knots)
-    #knots1 = np.hstack(([knots1[0]]*(order-1), knots1, [knots1[-1]]*(order-1)))
-    knots2 = np.linspace(x2_r[0],x2_r[1],size_knots)
-    #knots2 = np.hstack(([knots2[0]]*(order-1), knots2, [knots2[-1]]*(order-1)))
-    knots3 = np.linspace(x3_r[0],x3_r[1],size_knots)
-    #knots3 = np.hstack(([knots3[0]]*(order-1), knots3, [knots3[-1]]*(order-1)))
-    knots4 = np.linspace(x4_r[0],x4_r[1],size_knots)
-    #knots4 = np.hstack(([knots4[0]]*(order-1), knots4, [knots4[-1]]*(order-1)))
-    knots5 = np.linspace(x5_r[0],x5_r[1],size_knots)
-    #knots5 = np.hstack(([knots5[0]]*(order-1), knots5, [knots5[-1]]*(order-1)))
-    knots6 = np.linspace(x6_r[0],x6_r[1],size_knots)
-    #knots6 = np.hstack(([knots6[0]]*(order-1), knots6, [knots6[-1]]*(order-1)))
-    
-
-    sm_handler = smooths_handler()
-    sm_handler.add_smooth('t_since_firefly', [data[1,:]], ord=order, knots=[knots1], knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False], trial_idx=None, lam=None,penalty_type='der',der=2)
-
-    sm_handler.add_smooth('t_since_move', [data[2,:]], ord=order, knots=[knots2], knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=None, lam=None,penalty_type='der',der=2)
-    
-    # TODO - knots only defined -1 to 1 in cyclic, better to construct by hand?
-    sm_handler.add_smooth('density', [data[3,:]], ord=order, knots=[knots3], knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=None, lam=None,penalty_type='der',der=2)
-    
-    sm_handler.add_smooth('dist_to_fly', [data[4,:]], ord=order, knots=[knots4], knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=None, lam=None,penalty_type='der',der=2)
-    
-    sm_handler.add_smooth('lin_acc', [data[5,:]], ord=order, knots=[knots5], knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=None, lam=None,penalty_type='der',der=2)
-    
-    sm_handler.add_smooth('ang_acc', [data[6,:]], ord=order, knots=[knots6], knots_num=size_knots, perc_out_range=0.0,
-                          is_cyclic=[False],  trial_idx=None, lam=None,penalty_type='der',der=2)
-    
-    var_list = ['t_since_firefly', 't_since_move', 'density', 'dist_to_fly', 'lin_acc', 'ang_acc']#,'1d_var2']#,'1d_var3']#,'1d_var4','1d_var5','1d_var6']
-
-
-    link = sm.genmod.families.links.logit()
-    
-    bernouFam = sm.genmod.families.family.Binomial(link=link)
-    
-    
-    gam_model = general_additive_model(sm_handler,var_list,y,
-                                           bernouFam,fisher_scoring=False)
-
-    full,reduced = gam_model.fit_full_and_reduced(var_list,th_pval=0.001, max_iter=10 ** 4,#, tol=10 ** (-8),
-                                  conv_criteria='gcv',
-                                  method='L-BFGS-B', #smooth_pen=[1] * 4, 
-                                  gcv_sel_tol=10 ** (-13), use_dgcv=True, fit_initial_beta=True,pseudoR2_per_variable=True)
-    
-    print('===============================================')
-    print("Num vars: "+str(len(reduced.variable_expl_variance)))
-    for i in range(0,len(reduced.variable_expl_variance)):
-        print("VAR " + str(i))
+        #plt.subplot(1, len(var_list), j+1)
+        axs[j].set_title(var_list[j])
+        axs[j].plot(xxs[j], f1y, 'k-', label='model')
+        axs[j].fill_between(xxs[j], f1y_min,f1y_max)
+        funcs.append(f1y)
         
-        print("Variable: " + str(reduced.variable_expl_variance[i]['variable']))
-        print("Pseudo Rsq: " + str(reduced.variable_expl_variance[i]['pseudo-R2'])) 
-        print("Variance expl: " +str(reduced.variable_expl_variance[i]['var_expl']))
         
-    
-    f1y, f1y_min, f1y_max, la1 = full.smooth_compute([xx1], 't_since_firefly') # make sure xx matches
-    f2y, f2y_min, f2y_max, la2 = full.smooth_compute([xx1], 't_since_move')
-    f3y, f3y_min, f3y_max, la3 = full.smooth_compute([xx3], 'density')
-    f4y, f4y_min, f4y_max, la4 = full.smooth_compute([xx4], 'dist_to_fly')
-    f5y, f5y_min, f5y_max, la5 = full.smooth_compute([xx5], 'lin_acc')
-    f6y, f6y_min, f6y_max, la6 = full.smooth_compute([xx6], 'ang_acc')
-    #%%
-    plt.close('all')
-    '''plt.figure()
-    plt.title("log")
-    plt.subplot(161)
-    plt.title("function 1")
-    plt.plot(np.log(xx1), data[1,:],color='g',label='f1')
-    plt.plot(plt.log(xx1), f1y, 'k-', label='model')
-    plt.fill_between(plt.log(xx1), f1y_min,f1y_max)
-    plt.subplot(162)
-    plt.title("function 2")
-    plt.plot(plt.log(xx2), curr2(xx2),color='g',label='f2')
-    plt.plot(plt.log(xx2), f2y, 'k-', label='model')
-    plt.fill_between(plt.log(xx2), f2y_min, f2y_max)
-    plt.subplot(163)
-    plt.title("function 3")
-    plt.plot(plt.log(xx3), curr3(xx3),color='g',label='f3')
-    plt.plot(plt.log(xx3), f3y, 'k-', label='model')
-    plt.fill_between(plt.log(xx3), f3y_min, f3y_max)
-    plt.subplot(164)
-    plt.title("function 4")
-    plt.plot(plt.log(xx4), np.log(curr4(xx4)),color='g',label='f4')
-    plt.plot(plt.log(xx4), f4y, 'k-', label='model')
-    plt.fill_between(plt.log(xx4), f4y_min, f4y_max)
-    plt.subplot(165)
-    plt.title("function 5")
-    plt.plot(plt.log(xx5), curr5(xx5),color='g',label='f5')
-    plt.plot(plt.log(xx5), f5y, 'k-', label='model')
-    plt.fill_between(plt.log(xx5), f5y_min, f5y_max)
-    plt.subplot(166)
-    plt.title("function 6")
-    plt.plot(plt.log(xx6), curr6(xx6),color='g',label='f6')
-    plt.plot(plt.log(xx6), f6y, 'k-', label='model')
-    plt.fill_between(plt.log(xx6), f6y_min, f6y_max)
-    plt.legend()'''
-    
-    
-    plt.figure()
-    
-    plt.title("R2: " + str(reduced.variable_expl_variance[0]['pseudo-R2'])+\
-              "Variance expl: " +str(reduced.variable_expl_variance[0]['var_expl']))
-    plt.subplots(1,6, sharey='all')
-    plt.subplot(161)
-    plt.title("t_since_firefly")
-    #plt.plot(np.sort(data[1,:]),color='g',label='f1')
-    plt.plot(xx2, f1y, 'k-', label='model')
-    plt.fill_between(xx2, f1y_min,f1y_max)
+    return funcs, x_ranges
 
-    plt.subplot(162)
-    plt.title("t_since_move")
-    #plt.plot(np.sort(data[2,:]),color='g',label='f2')
-    plt.plot(xx2, f2y, 'k-', label='model')
-    plt.fill_between(xx2, f2y_min,f2y_max)
-
-    plt.subplot(163)
-    plt.title("density")
-    #plt.plot(xx3, curr3(xx3),color='g',label='f3')
-    plt.plot(xx3, f3y, 'k-', label='model')
-    plt.fill_between(xx3, f3y_min,f3y_max)
-    plt.subplot(164)
-    plt.title("dist_to_fly")
-    #plt.plot(xx4, np.log(curr4(xx4)),color='g',label='f4')
-    plt.plot(xx4, f4y, 'k-', label='model')
-    plt.fill_between(xx4, f4y_min,f4y_max)
-    plt.subplot(165)
-    plt.title("lin_acc")
-    #plt.plot(xx5, curr5(xx5),color='g',label='f5')
-    plt.plot(xx5, f5y, 'k-', label='model')
-    plt.fill_between(xx5, f5y_min,f5y_max)
-    plt.subplot(166)
-    plt.title("ang_acc")
-    #plt.plot(xx6, curr6(xx6),color='g',label='f6')
-    plt.plot(xx6, f6y, 'k-', label='model')
-    plt.fill_between(xx6, f6y_min,f6y_max)
-    '''plt.subplot(177)
-    plt.title("Function 7")
-    plt.plot(xx7, curr7(xx7),color='g',label='f7')
-    plt.plot(xx7, f7y, 'k-', label='model')
-    plt.fill_between(xx7, f7y_min,f7y_max)'''
-
-    #%%
-    return [f1y, f2y, f3y, f4y, f5y, f6y]
-
-def find_nearest(array, value):
-    array = np.asarray(array)
-    idx = (np.abs(array - value)).argmin()
-    return array[idx]
-
-def asses_data(functions, test_data):
-    '''x0_r = [np.min(data[0,:]),np.max(data[0,:])]
-    x1_r = [np.min(data[1,:]),np.max(data[1,:])]
-    x2_r = [np.min(data[2,:]),np.max(data[2,:])]
-    x3_r = [np.min(data[3,:]),np.max(data[3,:])]
-    x4_r = [np.min(data[4,:]),np.max(data[4,:])]
-    x5_r = [np.min(data[5,:]),np.max(data[5,:])]
-    x6_r = [np.min(data[6,:]),np.max(data[6,:])]
+def asses_data(functions, test_data, bounds):# add what to include
     
-    xx1 = (np.max(data[1,:])-np.min(data[1,:]))/100
-    xx2 = (np.max(data[2,:])- np.min(data[2,:]))/100
-    xx3 = (np.max(data[3,:])-np.min(data[3,:])-.004)/100
-    xx4 = (np.max(data[4,:])-np.min(data[4,:]))/100
-    xx5 = (np.max(data[5,:])-np.min(data[5,:]))/100
-    xx6 = (np.max(data[6,:])-np.min(data[6,:]))/100'''
-    lowers = [-2.494040012359619, -2.2800000000000002, 0.0001, 6.939641469616705, -72.57864379882812, -83.80699920654297]
-    xx1 = (3.629159927368164 + 2.494040012359619)/100
-    xx2 = (4.296 +2.2800000000000002)/100
-    xx3 = (0.0051 + 0.00011)/100
-    xx4 = (466.23953378543354 - 6.939641469616705)/100
-    xx5 = (200.83282470703125 +72.57864379882812)/100
-    xx6 = (71.20767974853516 + 83.80699920654297)/100
-    
-    xxs = [xx1, xx2, xx3, xx4, xx5, xx6]
-    
-    
-    # get negative vakues to work
-    val = np.zeros((len(xxs)+1, len(test_data[0])))
-    for i in [1, 2,3, 4,5,6]:#len(test_data)):
-        '''print("test data")
-        print(test_data[i])
-        print(i)
-        print(xxs[i-1])'''
-        # this is wrong
-        inds = np.rint((test_data[i]-lowers[i-1])/xxs[i-1]).astype(int)
-        #np.rint((test_data[i]-lowers[i-1]/xxs[i-1])+(lowers[i-1]/xxs[i-1])*-1).astype(int) # minus lower bound!!!
-        '''print("inds")
-        print(inds)
-        print("funcs")
-        print(functions[i-1])
-        print(functions[i-1][inds])'''
-        temp = functions[i-1][inds]
-        val[i,:] = temp
-
+    val = np.zeros((len(test_data), len(test_data[0])))
+    for i in [1, 2, 3, 4,5,6,7,8,9]:
+        xx1 = np.linspace(bounds[i-1][0], bounds[i-1][1], 100)
+        compare = np.tile(xx1, (len(test_data[i]),1)).T
+        inds = np.argmin(np.abs(compare - test_data[i]), axis=0)
+        func_eval = functions[i-1][inds]
+        val[i,:] = func_eval
+    if test_data[10,0] == 0:
+        print(functions[9])
+        func_eval = functions[9][:len(test_data)]
+        print(func_eval)
+        val[10,:] += func_eval
+    '''if len(test_data[9]) > 17:
+        val[9,0:17] = functions[8][0:17]
+    else:
+        val[9,:] = functions[8][0:len(test_data[9])]'''
+    #val[10,:] = func_eval
     return val
-    
-                       
-if __name__ == '__main__':
-    #oldm()
-    print("========is gammmmmmm========")
-    #ids, x1, y = isabel_data()
-    #run_pgam(ids, x1, y)
-    #meth3_arbitrary()
-    #meth3()
-    #meth3_subsample()
+
+def check_data(trial, funcs, bounds):
+    conf_mat = np.zeros((2, 2))
+
     plt.figure()
-    m53s100 = Trial('/Users/isabelgaron/anaconda3/envs/firefly/proj_files/monkey/m53s114.mat')
-    final = []
-    num_nobs = 0
-    num_s = 0
-    num_f=0
-    # TODO - leave one out check on each variable, labeling axis, at different input windows
-    # also confusion matrices, also chekc when reward occurs versus when motion dtops
-    # 200, .75, 2786 trials
-    for i in range(1, 300):#.75, .9
-    #cheating 1, .9, works with .75, 1, and 1, .75
-    #starts working qt 60% of total trial, as low as .3, dcsles evenly, dont need to rerun
-    # question is how early separation emerges
-        samp_s = construct_bgam_downsample_backup(m53s100, m53s100.successes[i], .5, 17)
-        samp_f = construct_bgam_downsample_backup(m53s100, m53s100.failures[i], .5, 17)
-        final.append(samp_s)
-        final.append(samp_f)
-        num_nobs+=len(samp_s[0])
-        num_nobs+=len(samp_f[0])
-        num_s+=len(samp_s[0])
-        num_f+=len(samp_f[0])
-    print("Failures: " + str(num_f))
-    print("Successes: " + str(num_s))
-    data = np.hstack(final)
-    
-    funcs = actual_data(data)
-    
-    conf_mat = np.zeros((2,2))
-    
-    plt.figure()
+
     for i in range(0, 44):
 
-        downsample_s = construct_bgam_downsample_backup(m53s100, m53s100.successes[300+i], .8, 17)
-        res1 = asses_data(funcs, downsample_s)
-        x1= np.arange(0, len(res1[1]))*20/len(res1[1])
+        downsample_s = construct_bgam_downsample_backup(m53s100, m53s100.successes[300 + i], .8, 17)
+        res1 = asses_data(funcs, downsample_s, bounds)
         # time warp so compoletely aligned
-        downsample_f =  construct_bgam_downsample_backup(m53s100, m53s100.failures[300+i], .8, 17)
-        res2 = asses_data(funcs,downsample_f)
-        x2= np.arange(0, len(res2[1]))*20/len(res2[1])
-        sum1 =  np.sum(res1, axis=0)
+        downsample_f = construct_bgam_downsample_backup(m53s100, m53s100.failures[300 + i], .8, 17)
+        res2 = asses_data(funcs, downsample_f, bounds)
+
+        x1 = np.arange(0, len(res1[1])) * 20 / len(res1[1])
+        x2 = np.arange(0, len(res2[1])) * 20 / len(res2[1])
+
+        sum1 = np.sum(res1, axis=0)
         sum2 = np.sum(res2, axis=0)
-        if sum1[-1] >0:
-            conf_mat[0,0] +=1
+
+        if sum1[-1] > 0:
+            conf_mat[0, 0] += 1
         else:
-            conf_mat[0,1] +=1
-        if sum2[-1] <0:
-            conf_mat[1,0] +=1
+            conf_mat[0, 1] += 1
+        if sum2[-1] < 0:
+            conf_mat[1, 1] += 1
         else:
-            conf_mat[1,1] +=1
+            conf_mat[1, 0] += 1
         '''sum1 =  np.sum(res1, axis=0)
         sum2 = np.sum(res2, axis=0)
         step_s = len(sum1-1)/20
@@ -794,14 +205,15 @@ if __name__ == '__main__':
                 conf_mat[1,0,k] +=1
             else:
                 conf_mat[1,1,k] +=1'''
-        
+
         plt.plot(x1, np.sum(res1, axis=0), color="blue")
         plt.plot(x2, np.sum(res2, axis=0), color="grey")
         plt.axhline(0)
         ax = plt.gca()
-        ax.set_xticklabels(np.around(np.linspace(0, 99, 10)))
-    
-        
+        ax.set_xticklabels(np.around(np.linspace(0, 100, 10)))
+        plt.title("Initial " + str(proportion_considered) + "% Considered")
+        plt.xlabel("Proportion of trial")
+
         '''plt.subplots(1,3)
         plt.subplot(131)
         plt.plot(np.sum(res1, axis=0), color="blue")
@@ -833,7 +245,7 @@ if __name__ == '__main__':
         plt.plot(res1[5], color="darkblue", label = "slinvel")
         plt.plot(res2[6], color="darkgrey", label = "angvel")
         plt.plot(res1[6], color="darkblue", label = "sangvel")'''
-        #plt.legend()
+        # plt.legend()
     print("Confiusion matrix")
     print(conf_mat)
     '''plt.figure()
@@ -844,8 +256,177 @@ if __name__ == '__main__':
     plt.xlabel("% of trial length")
     plt.ylabel("# trials")
     plt.legend()'''
+                       
+if __name__ == '__main__':
+    samples = np.random.gamma(2,1, 1000)
+    plt.figure()
+    plt.hist(samples, bins = 50)
     plt.show()
-    #knots6 = np.linspace(x6_r[0],x6_r[1],size_knots)
-    #knots6 = np.hstack(([knots6[0]]*(order-1), knots6, [knots6[-1]]*(order-1)))
+    print("========is gammmmmmm========")
+    plt.figure()
+    m53s100 = Trial('/Users/isabelgaron/anaconda3/envs/firefly/proj_files/monkey/m53s114.mat')
+    np.random.seed(5)
+    proportion_considered = .75
+    smooth_over = 33 #ms #TODO finish this
+    
+    n_train = 300
+    n_test = 30
+    # check that this total is possible
+    
+    final = []
+    
+    num_nobs = 0
+    num_s = 0
+    num_f=0
+    indices = []
+    # TODO - leave one out check on each variable, labeling axis, at different input windows
+    # also confusion matrices, also chekc when reward occurs versus when motion dtops
+    # 200, .75, 2786 trials
+    #### randomize
+    successes = np.random.shuffle(m53s100.successes)
+    failures = np.random.shuffle(m53s100.successes)
+    
+    successes_train = successes[:n_train]
+    successes_test = successes[n_train:n_test]
+    
+    failures_train = successes[:n_train]
+    failures_test = successes[n_train:n_test]
+
+    for i in range(1, n_train):#.75, .9
+    #cheating 1, .9, works with .75, 1, and 1, .75
+    #starts working qt 60% of total trial, as low as .3, dcsles evenly, dont need to rerun
+    # question is how early separation emerges
+        #print("index: " + str(i))
+        samp_s = construct_bgam_downsample_backup(m53s100, m53s100.successes[i], proportion_considered, smooth_over)
+        samp_f = construct_bgam_downsample_backup(m53s100, m53s100.failures[i], proportion_considered, smooth_over)
+        if samp_f is not None:
+            if samp_s is not None:
+                final.append(samp_s)
+                final.append(samp_f)
+                num_nobs+=len(samp_s[0])
+                num_nobs+=len(samp_f[0])
+                #print(len(samp_s[0]))
+                #print(len(samp_f[0]))
+                num_s+=len(samp_s[0])
+                num_f+=len(samp_f[0])
+                indices= np.concatenate((indices, np.repeat(m53s100.successes[i], len(samp_s[0]))))
+                indices= np.concatenate((indices, np.repeat(m53s100.failures[i], len(samp_f[0]))))
+    indices = np.array(indices)
+    print("Failures: " + str(num_f))
+    print("Successes: " + str(num_s))
+    data = np.hstack(final)
+    
+    funcs,bounds = actual_data(data, ['t_since_firefly', 't_since_move', 'density', 'distance','lin_vel','ang_vel','lin_acc','ang_acc', 'prev_dist','prev_perf'], indices)
+    #,'prev_perf','prev_dist']
+
+
+    conf_mat = np.zeros((2, 2))
+    plt.figure()
+    # discriminability metric = this averaged over 100 timesteps
+    #    compare = np.tile(xx1, (len(test_data[i]),1)).T
+    #         inds = np.argmin(np.abs(compare - test_data[i]), axis=0)
+    #         func_eval = functions[i-1][inds]
+    num_test = 20
+    s_mat = np.zeros((num_test, 100))
+    f_mat = np.zeros((num_test, 100))
+
+    plt.figure()
+    fig, axs = plt.subplots(3,1, sharey=True, sharex=True)
+    
+    for i in range(0, num_test):
+        downsample_s = construct_bgam_downsample_backup(m53s100, m53s100.successes[n_train + i], .9, smooth_over)
+        res1 = asses_data(funcs, downsample_s, bounds)
+        # time warp so compoletely aligned
+        downsample_f = construct_bgam_downsample_backup(m53s100, m53s100.failures[n_train + i], .9, smooth_over)
+        res2 = asses_data(funcs, downsample_f, bounds)
+
+        x1 = np.arange(0, len(res1[1])) * 100 / len(res1[1])
+        x2 = np.arange(0, len(res2[1])) * 100 / len(res2[1])
+
+        sum1 = np.sum(res1, axis=0)
+        sum2 = np.sum(res2, axis=0)
+        
+
+        for j in range(0, 100):
+            s_mat[i, j] = sum1[np.argmin(abs(x1 - j))]
+            f_mat[i,j] = sum2[np.argmin(abs(x2-j))]
+
+
+        if sum1[-1] > 0:
+            conf_mat[0, 0] += 1
+        else:
+            conf_mat[0, 1] += 1
+        if sum2[-1] < 0:
+            conf_mat[1, 1] += 1
+        else:
+            conf_mat[1, 0] += 1
+        ##### nah or just normal link???? logit
+        link = sm.genmod.families.links.logit()
+        bernouFam = sm.genmod.families.family.Binomial(link=link)
+        axs[0].plot(x1,bernouFam.link.inverse(np.sum(res1, axis=0)), color="blue")
+        axs[1].plot(x2,bernouFam.link.inverse(np.sum(res2, axis=0)), color="grey")
+        
+    # try with 39 and 51
+
+    #39
+    #giveups = [1230, 1150, 1046, 880, 778, 730, 703, 675, 543, 140, 134, 88]
+    #51 - 
+    #giveups = [1681,1161,1675, 1304, 1299, 1226,  1111, 1100, 753, 743,  641, 610, 568, 558, 219,722, 46 ]
+    #105
+    #giveups = [714, 692, 691, 675, 658, 646, 634, 535, 496, 464, 428, 427, 417, 394, 339, 276, 224, 212, 190, 189, 120, 118, 113]
+    #114 - 675, 591,513, 509, 498,280, 278 train then giveup test
+    giveups = [741,712, 693, 690, 686, 675, 599, 591, 585, 584, 582, 513, 509, 498, 480, 280, 278, 258, 242] # 19 tested, 7 trained on, 15->failure predicted from outset, 
+    #100
+    #giveups = [430,420, 385, 317,299, 296, 293, 280, 213, 180, 171, 165, 158,135,122, 82, 78, 76, 70, 48, 16]
+    # not good, and seperatbility regulrly around 85
+    #123
+    #giveups_123 = [758,756,710, 691, 599, 598, 556, 536, 413, 400, 336, 333, 293, 220, 159, 54, 8, 6]
+    #giveups_124 = [656,555,554,549, 504, 503, 420, 414, 412, 404, 397, 335, 328, 305, 280, 258, 249, 231, 135, 131, 126,2]
+
+    for i in giveups:
+        downsample_s = construct_bgam_downsample_backup(m53s100, i, .8, smooth_over)
+        res1 = asses_data(funcs, downsample_s, bounds)
+
+        x1 = np.arange(0, len(res1[1])) * 100 / len(res1[1])
+
+        sum1 = np.sum(res1, axis=0)
+
+        ##### nah or just normal link???? logit
+        link = sm.genmod.families.links.logit()
+        bernouFam = sm.genmod.families.family.Binomial(link=link)
+        axs[2].plot(x1,bernouFam.link.inverse(np.sum(res1, axis=0)), color = 'orange')
+   
+    print(np.std(s_mat, axis=0))
+    print(np.std(f_mat, axis=0))
+    # actually d'
+    delta = abs(bernouFam.link.inverse(np.average(s_mat, axis=0))-bernouFam.link.inverse(np.average(f_mat, axis=0)))\
+                  /bernouFam.link.inverse(np.average(np.std(f_mat, axis=0)))
+    
+    
+    axs[0].set_title("Successes 114 -  Initial " + str(proportion_considered) + "% Considered, d' = " + str(np.average(delta)))
+    axs[1].set_ylabel("Probability of Success")
+    axs[1].set_title("Failures")
+    axs[2].set_title("Give ups")
+    #axs[2].set_xticklabels(np.around(np.linspace(0, 80)))
+    axs[2].set_xlabel('Proportion of Trial')
+    plt.legend()
+    
+    print(s_mat)
+    print("================================================")
+    print("d'") # replace with bayes discriminability
+    print(np.average(delta))
+    #print(np.sum(bernouFam.link.inverse(np.average(s_mat, axis=0)-np.std(s_mat, axis=0))-bernouFam.link.inverse(np.average(f_mat, axis=0)+np.std(f_mat, axis=0))))
+    
+    axs[0].plot(delta, color="red")
+    axs[1].plot(delta, color="red")
+    '''plt.plot(bernouFam.link.inverse(np.median(s_mat, axis=0)), color="coral")
+    plt.plot(bernouFam.link.inverse(np.median(f_mat, axis=0)), color="coral")
+    plt.plot(bernouFam.link.inverse(np.average(s_mat, axis=0)-np.std(s_mat, axis=0)), color="pink")
+    plt.plot(bernouFam.link.inverse(np.average(f_mat, axis=0)+np.std(f_mat, axis=0)), color="pink")
+    '''
+    print("Confiusion matrix")
+    print(conf_mat)
+    plt.show()
+    
     
     
